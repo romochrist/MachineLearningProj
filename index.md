@@ -154,7 +154,7 @@ If we print the tree we can see that we are missing the classification for the '
     text(modelTree$finalModel, use.n = TRUE, all = TRUE, cex = 0.8)
 ```
 
-![](MachineLearningProj_files/figure-html/tree2-1.png)<!-- -->
+![](index_files/figure-html/tree2-1.png)<!-- -->
 
 Finally if we print the confusion matrix we see that the accuracy is too low and the model is 
 failling to classificate the 'D' class.
