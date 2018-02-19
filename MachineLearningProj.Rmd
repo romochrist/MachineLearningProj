@@ -1,0 +1,155 @@
+---
+title: "Machine Learning Project"
+author: "Christian Romo"
+date: "18/02/2018"
+output:
+    html_document:
+        keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r libraries, cache = F, echo = F, message = F, warning = F, tidy = F, results='hide'}
+    require(caret)
+    require(kernlab)
+    require(parallel)
+    require(doParallel)
+```
+
+# Overview
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+The goal of this project is to predict the manner in which people perform certain weight lifting exercises using data from accelerometers on belt, forearm, arm, and dumbell of 6 participants.
+
+# Analysis
+
+First we read the training and testing data.
+```{r readData, cache = F, echo = T, message = F, warning = F, tidy = F, results='hide'}
+    set.seed(89675)
+    train <- read.csv(file = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+    test <- read.csv(file = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+```
+
+The codebook indicates that the data set includes summary statistics so we drop these columns in favor of using just raw sensor data.
+```{r cleanData, cache = F, echo = F, message = F, warning = F, tidy = F, results='hide'}
+    train <- train[, !grepl("kurtosis_|skewness_|max_|min_|amplitude_|var_|avg_|stddev_|user_|X|_timestamp|_window", names(train), ignore.case = FALSE)]
+    
+    test <- test[, !grepl("kurtosis_|skewness_|max_|min_|amplitude_|var_|avg_|stddev_|user_|X|_timestamp|_window", names(test), ignore.case = FALSE)]
+```
+
+Creating the training and testing data partitions.
+```{r dataPartitions, cache = F, echo = T, message = F, warning = F, tidy = F, results='hide'}
+    partition <- createDataPartition(y = train$classe, p = 0.75, list = FALSE)
+    trainData <- train[partition, ]
+    testData <- train[-partition, ]
+```
+
+Data exploration to find out columns with no variability in them.
+```{r zeroData, cache = F, echo = T, message = F, warning = F, tidy = F}
+    metrics <- nearZeroVar(trainData, saveMetrics = TRUE)
+    metrics
+```
+We can see that all the columns have variability so we preserve all of them for the analysis.
+
+
+Firts atempts of creating a prediction model were taking too long to construct, especially for
+Regression Trees and Random Forest, so I had to enable parallel processing to get a better 
+performance and reduce processing time.
+```{r parallelConf, cache = F, echo = T, message = F, warning = F, tidy = F, results='hide'}
+    cluster <- makeCluster(detectCores() - 1)
+    registerDoParallel(cluster)
+```
+
+Also I needed to control the execution of the training methods to improve performance and
+add resampling and cross-validation features to the selected traning functions.
+```{r trainControl, cache = F, echo = T, message = F, warning = F, tidy = F, results='hide'}
+    fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+```
+
+We area trying to predict the 'classe' variable of the data set, this is a factor variable with 5
+levels indicating how well was the lifting exercise executed. If we try a linear regression model
+we'll get an error because of the nature of the data we are trying to predict.
+
+
+First we try to fit a model with Regression Trees, which is a better method for classification problems
+and data divided into groups, also offering a better perfomance in non linear settings.
+```{r tree1, cache = F, echo = T, message = F, warning = F, tidy = F}
+    # regression trees
+    modelTree <- train(classe ~ . , method="rpart", data = trainData, trControl = fitControl)
+    print(modelTree$finalModel)
+```
+
+If we print the tree we can see that we are missing the classification for the 'D' class.
+```{r tree2, cache = F, echo = T, message = F, warning = F, tidy = F}
+    plot(modelTree$finalModel, uniform = TRUE, main = "Classification tree")
+    text(modelTree$finalModel, use.n = TRUE, all = TRUE, cex = 0.8)
+```
+
+Finally if we print the confusion matrix we see that the accuracy is too low and the model is 
+failling to classificate the 'D' class.
+```{r tree3, cache = F, echo = T, message = F, warning = F, tidy = F}
+    confusionMatrix(testData$classe, predict(modelTree, testData))
+```
+
+Next we try to fit a model with Boosting, which is a better method for classification problems
+and data divided into groups, also offering a better perfomance in non linear settings.
+```{r boosting1, cache = F, echo = T, message = F, warning = F, tidy = F}
+    # boosting
+    modelBoos <- train(classe ~ . , method="gbm", data = trainData, trControl = fitControl, verbose = FALSE)
+```
+
+Print of the final model with Boosting method.
+```{r boosting2, cache = F, echo = T, message = F, warning = F, tidy = F}
+    print(modelBoos$finalModel)
+```
+
+Now a print of the confusion matrix for the boosting model.
+```{r boosting3, cache = F, echo = T, message = F, warning = F, tidy = F}
+    confusionMatrix(testData$classe, predict(modelBoos, testData))
+```
+This time we get better accuracy than Regression Trees and we were are able to correctly
+classificate the 'D' class. Even with more than 90% accuracy we may not be able to get a good performance on
+the testing set, so let's try another model.
+
+Next we try to fit a model with Random Forest, which offer better accuracy with the downside of larger
+processing times, but we took advantage of R's parallel processing.
+```{r randomForest1, cache = F, echo = T, message = F, warning = F, tidy = F}
+    # random forest
+    modelRFor <- train(classe ~ . , method="rf", data = trainData, trControl = fitControl)
+```
+
+Let's look at the summary of the final model.
+```{r randomForest2, cache = F, echo = T, message = F, warning = F, tidy = F}
+    print(modelRFor$finalModel)
+```
+
+And finally the confusion matrix to see if we get better accuracy.
+```{r randomForest3, cache = F, echo = T, message = F, warning = F, tidy = F}
+    confusionMatrix(testData$classe, predict(modelRFor, testData))
+```
+
+# Results
+
+Random Forest is giving better accuracy than previous models and with the use of parallel processing
+the processing time is just a few minutes. Let's try the model with the testing data.
+```{r results1, cache = F, echo = T, message = F, warning = F, tidy = F}
+    predictedValues <- predict(modelRFor, test)
+    predictedValues
+```
+We can see the predicted values for the 20 test cases and if we validate this with the quiz results
+it's a 20 out of 20 score.
+
+After trying some predictions models we got accuracy rates above 90% with boosting and random forest.
+An improvement for this model could be to combine prediction models, in this case the ones with better
+accuracy rates, to see if we can get better results and lower error rates.
+   
+```{r closeParallel, cache = F, echo = F, message = F, warning = F, tidy = F, results='hide'} 
+    stopCluster(cluster)
+    registerDoSEQ()
+```
+
+
